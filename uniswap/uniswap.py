@@ -748,6 +748,7 @@ class Uniswap:
             "from": _addr_to_str(self.address),
             "value": value,
             "gas": gas,
+            'gasPrice': self.w3.eth.gasPrice*1.2,
             "nonce": max(
                 self.last_nonce, self.w3.eth.getTransactionCount(self.address)
             ),
