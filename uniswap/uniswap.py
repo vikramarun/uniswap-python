@@ -126,7 +126,7 @@ class Uniswap:
         provider: str = None,
         web3: Web3 = None,
         version: int = 1,
-        max_slippage: float = 0.1,
+        max_slippage: float = .4999,
     ) -> None:
         self.address: AddressLike = _str_to_addr(address) if isinstance(
             address, str
@@ -748,7 +748,7 @@ class Uniswap:
             "from": _addr_to_str(self.address),
             "value": value,
             "gas": gas,
-            'gasPrice': self.w3.eth.gasPrice*1.2,
+            'gasPrice': int(self.w3.eth.gasPrice*1.35),
             "nonce": max(
                 self.last_nonce, self.w3.eth.getTransactionCount(self.address)
             ),
