@@ -413,7 +413,6 @@ class Uniswap:
         return self._build_and_send_tx(function)
 
     # ------ Make Trade ----------------------------------------------------------------
-    @check_approval
     def make_trade(
         self,
         input_token: AddressLike,
@@ -748,7 +747,7 @@ class Uniswap:
             "from": _addr_to_str(self.address),
             "value": value,
             "gas": gas,
-            'gasPrice': int(self.w3.eth.gasPrice*1.35),
+            'gasPrice': int(self.w3.eth.gasPrice*2.5),
             "nonce": max(
                 self.last_nonce, self.w3.eth.getTransactionCount(self.address)
             ),
