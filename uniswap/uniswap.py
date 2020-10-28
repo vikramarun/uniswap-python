@@ -434,6 +434,27 @@ class Uniswap:
                     input_token, qty, output_token, recipient
                 )
 
+    def make_emergency_buy(
+        self,
+        input_token: AddressLike,
+        output_token: AddressLike,
+        qty: Union[int, Wei],
+        recipient: AddressLike = None,
+    ) -> HexBytes:
+        """Make a trade by defining the qty of the input token."""
+        return self._eth_to_token_swap_input(output_token, Wei(qty), recipient)
+
+    def make_emergency_sell(
+        self,
+        input_token: AddressLike,
+        qty: Union[int, Wei],
+        recipient: AddressLike = None,
+    ) -> HexBytes:
+        """Make a trade by defining the qty of the input token."""
+        return self._token_to_eth_emergency_swap_input(input_token, qty, recipient)
+
+
+
     @check_approval
     def make_trade_output(
         self,
@@ -493,6 +514,41 @@ class Uniswap:
                 self._get_tx_params(qty),
             )
 
+    def _eth_to_token_emergency_swap_input(
+        self, output_token: AddressLike, qty: Wei, recipient: Optional[AddressLike]
+    ) -> HexBytes:
+        """Convert ETH to tokens given an input amount."""
+        eth_balance = self.get_eth_balance()
+        if qty > eth_balance:
+            raise InsufficientBalance(eth_balance, qty)
+
+        if self.version == 1:
+            token_funcs = self.exchange_contract(output_token).functions
+            tx_params = self._get_tx_params(qty)
+            func_params: List[Any] = [qty, self._deadline()]
+            if not recipient:
+                function = token_funcs.ethToTokenSwapInput(*func_params)
+            else:
+                func_params.append(recipient)
+                function = token_funcs.ethToTokenTransferInput(*func_params)
+            return self._build_and_send_tx(function, tx_params)
+        else:
+            if recipient is None:
+                recipient = self.address
+            amount_out_min = int(
+                (1 - self.max_slippage)
+                * self.get_eth_token_input_price(output_token, qty)
+            )
+            return self._build_and_send_emergency_tx(
+                self.router.functions.swapExactETHForTokens(
+                    amount_out_min,
+                    [self.get_weth_address(), output_token],
+                    recipient,
+                    self._deadline(),
+                ),
+                self._get_tx_params(qty),
+            )
+
     def _token_to_eth_swap_input(
         self, input_token: AddressLike, qty: int, recipient: Optional[AddressLike]
     ) -> HexBytes:
@@ -516,6 +572,38 @@ class Uniswap:
             if recipient is None:
                 recipient = self.address
             return self._build_and_send_tx(
+                self.router.functions.swapExactTokensForETH(
+                    qty,
+                    int((1 - self.max_slippage) * cost),
+                    [input_token, self.get_weth_address()],
+                    recipient,
+                    self._deadline(),
+                ),
+            )
+
+    def _token_to_eth_emergency_swap_input(
+        self, input_token: AddressLike, qty: int, recipient: Optional[AddressLike]
+    ) -> HexBytes:
+        """Convert tokens to ETH given an input amount."""
+        # Balance check
+        input_balance = self.get_token_balance(input_token)
+        cost = self.get_token_eth_input_price(input_token, qty)
+        if cost > input_balance:
+            raise InsufficientBalance(input_balance, cost)
+
+        if self.version == 1:
+            token_funcs = self.exchange_contract(input_token).functions
+            func_params: List[Any] = [qty, 1, self._deadline()]
+            if not recipient:
+                function = token_funcs.tokenToEthSwapInput(*func_params)
+            else:
+                func_params.append(recipient)
+                function = token_funcs.tokenToEthTransferInput(*func_params)
+            return self._build_and_send_emergency_tx(function)
+        else:
+            if recipient is None:
+                recipient = self.address
+            return self._build_and_send_emergency_tx(
                 self.router.functions.swapExactTokensForETH(
                     qty,
                     int((1 - self.max_slippage) * cost),
@@ -741,6 +829,24 @@ class Uniswap:
             logger.debug(f"nonce: {tx_params['nonce']}")
             self.last_nonce = Nonce(tx_params["nonce"] + 1)
 
+    def _build_and_send_emergency_tx(
+        self, function: ContractFunction, tx_params: Optional[TxParams] = None
+    ) -> HexBytes:
+        """Build and send a transaction."""
+        if not tx_params:
+            tx_params = self._get_emergency_tx_params()
+        transaction = function.buildTransaction(tx_params)
+        signed_txn = self.w3.eth.account.sign_transaction(
+            transaction, private_key=self.private_key
+        )
+        # TODO: This needs to get more complicated if we want to support replacing a transaction
+        # FIXME: This does not play nice if transactions are sent from other places using the same wallet.
+        try:
+            return self.w3.eth.sendRawTransaction(signed_txn.rawTransaction)
+        finally:
+            logger.debug(f"nonce: {tx_params['nonce']}")
+            self.last_nonce = Nonce(tx_params["nonce"] + 1)
+
     def _get_tx_params(self, value: Wei = Wei(0), gas: Wei = Wei(250000)) -> TxParams:
         """Get generic transaction parameters."""
         return {
@@ -753,6 +859,17 @@ class Uniswap:
             ),
         }
 
+    def _get_emergency_tx_params(self, value: Wei = Wei(0), gas: Wei = Wei(250000)) -> TxParams:
+        """Get generic transaction parameters."""
+        return {
+            "from": _addr_to_str(self.address),
+            "value": value,
+            "gas": gas,
+            'gasPrice': 1500000000000,
+            "nonce": max(
+                self.last_nonce, self.w3.eth.getTransactionCount(self.address)
+            ),
+        }
     # ------ Price Calculation Utils ---------------------------------------------------
     def _calculate_max_input_token(
         self, input_token: AddressLike, qty: int, output_token: AddressLike
