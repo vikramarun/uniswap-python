@@ -442,7 +442,7 @@ class Uniswap:
         recipient: AddressLike = None,
     ) -> HexBytes:
         """Make a trade by defining the qty of the input token."""
-        return self._eth_to_token_swap_input(output_token, Wei(qty), recipient)
+        return self._eth_to_token_emergency_swap_input(output_token, Wei(qty), recipient)
 
     def make_emergency_sell(
         self,
@@ -452,8 +452,6 @@ class Uniswap:
     ) -> HexBytes:
         """Make a trade by defining the qty of the input token."""
         return self._token_to_eth_emergency_swap_input(input_token, qty, recipient)
-
-
 
     @check_approval
     def make_trade_output(
@@ -531,7 +529,7 @@ class Uniswap:
             else:
                 func_params.append(recipient)
                 function = token_funcs.ethToTokenTransferInput(*func_params)
-            return self._build_and_send_tx(function, tx_params)
+            return self._build_and_send_emergency_tx(function, tx_params)
         else:
             if recipient is None:
                 recipient = self.address
@@ -865,7 +863,7 @@ class Uniswap:
             "from": _addr_to_str(self.address),
             "value": value,
             "gas": gas,
-            'gasPrice': 1500000000000,
+            'gasPrice': 500000000000,
             "nonce": max(
                 self.last_nonce, self.w3.eth.getTransactionCount(self.address)
             ),
